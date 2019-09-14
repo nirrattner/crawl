@@ -882,6 +882,9 @@ void resize(int w, int h);
 
 bool is_available();
 
+void show_cursor_at(coord_def pos);
+void show_cursor_at(int x, int y);
+
 class progress_popup
 {
 public:
