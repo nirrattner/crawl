@@ -14,7 +14,6 @@
 #include "tiledef-gui.h"
 #include "tilefont.h"
 #include "unwind.h"
-#include "windowmanager.h"
 #include "cio.h"
 #ifdef USE_TILE_LOCAL
 # include "tilebuf.h"
@@ -26,6 +25,8 @@
 # include "tileweb.h"
 # include "json.h"
 #endif
+
+struct wm_keyboard_event;
 
 namespace ui {
 
@@ -104,6 +105,82 @@ public:
 
     int width, height;
 };
+
+class Widget;
+
+class Event
+{
+public:
+    enum Type {
+        KeyDown = 0,
+        KeyUp,
+        MouseMove,
+        MouseDown,
+        MouseUp,
+        MouseEnter,
+        MouseLeave,
+        MouseWheel,
+        FocusIn,
+        FocusOut,
+    };
+
+    explicit Event(Type type);
+
+    Type type() const { return m_type; }
+
+    shared_ptr<Widget>& target() { return m_target; }
+    shared_ptr<Widget> target() const { return m_target; }
+    void set_target(shared_ptr<Widget> target) { m_target = move(target); }
+
+protected:
+    Type m_type;
+    shared_ptr<Widget> m_target;
+};
+
+class KeyEvent final : public Event
+{
+public:
+    KeyEvent(Type type, const wm_keyboard_event& wm_ev);
+
+    int key() const { return m_key; }
+
+protected:
+    int m_key;
+};
+
+class MouseEvent final : public Event
+{
+public:
+#ifdef USE_TILE_LOCAL
+    MouseEvent(Type type, const wm_mouse_event& wm_ev);
+#endif
+
+    enum class Button
+    {
+        None = 0,
+        Left = 1,
+        Middle = 2,
+        Right = 4,
+    };
+
+    Button button() const { return m_button; }
+    int x() const { return m_x; }
+    int y() const { return m_y; }
+    int wheel_dx() const { return m_wheel_dx; }
+    int wheel_dy() const { return m_wheel_dy; }
+
+protected:
+    Button m_button;
+    int m_x, m_y;
+    int m_wheel_dx, m_wheel_dy;
+};
+
+class FocusEvent final : public Event
+{
+public:
+    FocusEvent(Type type);
+};
+
 
 template<typename, typename> class Slot;
 
@@ -281,7 +358,7 @@ public:
 #endif
     }
 
-    virtual bool on_event(const wm_event& event);
+    virtual bool on_event(const Event& event);
 
     template<class F>
     void on_any_event(F&& cb)
@@ -292,18 +369,32 @@ public:
     template<class F>
     void on_hotkey_event(F&& cb)
     {
-        slots.hotkey.on(this, forward<F>(cb));
-    }
-
-    template<class F>
-    void on_keydown_event(F&& cb)
-    {
-        slots.event.on(this, [cb](const wm_event& event){
-            if (event.type != WME_KEYDOWN)
-                return false;
-            return cb(event);
+        slots.hotkey.on(this, [cb](const Event& event){
+            return cb(static_cast<const KeyEvent&>(event));
         });
     }
+
+#define EVENT_HANDLER_HELPER(NAME, CLASS, ENUM) \
+    template<class F> \
+    void on_##NAME##_event(F&& cb) \
+    { \
+        slots.event.on(this, [cb](const Event& event){ \
+            if (event.type() != Event::Type::ENUM) \
+                return false; \
+            return cb(static_cast<const CLASS&>(event)); \
+        }); \
+    }
+    EVENT_HANDLER_HELPER(keydown, KeyEvent, KeyDown)
+    EVENT_HANDLER_HELPER(keyup, KeyEvent, KeyUp)
+    EVENT_HANDLER_HELPER(mousemove, MouseEvent, MouseMove)
+    EVENT_HANDLER_HELPER(mousedown, MouseEvent, MouseDown)
+    EVENT_HANDLER_HELPER(mouseup, MouseEvent, MouseUp)
+    EVENT_HANDLER_HELPER(mouseenter, MouseEvent, MouseEnter)
+    EVENT_HANDLER_HELPER(mouseleave, MouseEvent, MouseLeave)
+    EVENT_HANDLER_HELPER(mousewheel, MouseEvent, MouseWheel)
+    EVENT_HANDLER_HELPER(focusin, FocusEvent, FocusIn)
+    EVENT_HANDLER_HELPER(focusout, FocusEvent, FocusOut)
+#undef EVENT_HANDLER_HELPER
 
     /**
      * Container widget interface. Must return a pointer to the child widget at
@@ -366,8 +457,8 @@ private:
     string m_sync_id;
 
     static struct slots {
-        Slot<Widget, bool(const wm_event&)> event;
-        Slot<Widget, bool(const wm_event&)> hotkey;
+        Slot<Widget, bool(const Event&)> event;
+        Slot<Widget, bool(const Event&)> hotkey;
     } slots;
 };
 
@@ -817,7 +908,7 @@ public:
     void _render() override;
     SizeReq _get_preferred_size(Direction dim, int prosp_width) override;
     void _allocate_region() override;
-    bool on_event(const wm_event& event) override;
+    bool on_event(const Event& event) override;
 
 protected:
     int m_scroll = 0;
@@ -873,7 +964,7 @@ public:
     virtual SizeReq _get_preferred_size(Direction dim, int prosp_width) override;
     virtual void _allocate_region() override;
 
-    virtual bool on_event(const wm_event& event) override;
+    virtual bool on_event(const Event& event) override;
 
     bool checked() const
     {
@@ -920,7 +1011,7 @@ public:
     virtual void _render() override;
     virtual SizeReq _get_preferred_size(Direction dim, int prosp_width) override;
     virtual void _allocate_region() override;
-    virtual bool on_event(const wm_event& event) override;
+    virtual bool on_event(const Event& event) override;
 
     void set_font(FontWrapper *font);
 
