@@ -187,6 +187,12 @@ function ($, comm, client, options, focus_trap) {
         $(window).off("resize.ui").on("resize.ui", ui_resize_handler);
     });
 
+    $(document).on("click", "[data-hotkey]", function (ev) {
+        comm.send_message("key", {
+            keycode: parseInt($(ev.currentTarget).attr("data-hotkey"), 10),
+        });
+    });
+
     return {
         show_popup: show_popup,
         hide_popup: hide_popup,
