@@ -1,5 +1,5 @@
-define(["jquery", "comm", "client", "./options"],
-function ($, comm, client, options) {
+define(["jquery", "comm", "client", "./options", "./focus-trap"],
+function ($, comm, client, options, focus_trap) {
     "use strict";
 
     function wrap_popup(elem, ephemeral)
@@ -16,6 +16,49 @@ function ($, comm, client, options) {
         return wrapper.find(".ui-popup-inner").children();
     }
 
+    function popup_keydown_handler(ev)
+    {
+        var wrapper = $("#ui-stack").children().last();
+        var focused = document.activeElement != document.body ?
+                document.activeElement : null;
+
+        if (ev.which == 27 && focused)
+        {
+            document.activeElement.blur();
+            ev.stopPropagation();
+        }
+
+        if (ev.which == 9)
+        {
+            if (focused)
+            {
+                ev.stopPropagation();
+                return;
+            }
+
+            var focusable = wrapper[0].querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            var first = focusable[0];
+            var last = focusable[focusable.length-1];
+            (ev.shiftKey ? last : first).focus();
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+
+        if (focused && focused.tagName.toLowerCase() === "input"
+                && focused.type === "text")
+            ev.stopPropagation();
+    }
+
+    function popup_keypress_handler(ev)
+    {
+        var focused = document.activeElement != document.body ?
+                document.activeElement : null;
+        if (focused && focused.tagName.toLowerCase() === "input"
+                && focused.type === "text")
+            ev.stopPropagation();
+    }
+
     function show_popup(id, centred)
     {
         var $ui_stack = $("#ui-stack");
@@ -28,7 +71,18 @@ function ($, comm, client, options) {
         wrapper.toggleClass("centred", centred == true);
         $("#ui-stack").append(wrapper);
         wrapper.stop(true, true).fadeIn(100, function () {
-            elem.focus();
+            wrapper[0].focus_trap = focus_trap(elem[0], {
+                escapeDeactivates: false,
+                fallbackFocus: document.body,
+                onActivate: function () {
+                    document.addEventListener("keydown", popup_keydown_handler, true);
+                    document.addEventListener("keypress", popup_keypress_handler, true);
+                },
+                onDeactivate: function () {
+                    document.removeEventListener("keydown", popup_keydown_handler, true);
+                    document.removeEventListener("keypress", popup_keypress_handler, true);
+                },
+            }).activate();
         });
         if (elem.find(".paneset").length > 0)
             ui_resize_handler();
@@ -43,6 +97,7 @@ function ($, comm, client, options) {
         var elem = unwrap_popup(wrapper).blur();
         if (!wrapper.data("ephemeral"))
             elem.detach().addClass("hidden").appendTo("body");
+        wrapper[0].focus_trap.deactivate();
         wrapper.remove();
 
         if (show_below === false)

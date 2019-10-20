@@ -153,6 +153,8 @@ protected:
 
 class Widget : public enable_shared_from_this<Widget>
 {
+    friend struct UIRoot;
+
 public:
     enum Align {
         START = 0,
@@ -322,6 +324,8 @@ protected:
         for_each_internal_child(forward<F>(cb));
         for_each_child(forward<F>(cb));
     }
+
+    virtual bool can_take_focus() { return false; };
 
 private:
     bool cached_sr_valid[2] = { false, false };
@@ -794,7 +798,6 @@ protected:
 
 class Layout : public Bin
 {
-    friend struct UIRoot;
 public:
     explicit Layout(shared_ptr<Widget> child);
 
@@ -854,6 +857,8 @@ public:
     };
 
 protected:
+    bool can_take_focus() override { return true; };
+
     bool m_checked = false;
 #ifdef USE_TILE_LOCAL
     bool m_hovered = false;
@@ -897,6 +902,8 @@ public:
 #endif
 
 protected:
+    bool can_take_focus() override { return true; };
+
 #ifdef USE_TILE_LOCAL
     int padding_size();
 #endif

@@ -105,9 +105,23 @@ public:
     void debug_render();
 #endif
 
-    vector<KeymapContext> keymap_stack;
+    struct LayoutInfo
+    {
+        KeymapContext keymap = KMC_NONE;
+        Widget* current_focus = nullptr;
+        Widget* default_focus = nullptr;
+    };
+
+    // current keymap and focus info
+    LayoutInfo state;
+
     vector<int> cutoff_stack;
-    vector<Widget*> focus_stack;
+    vector<Widget*> default_focus_stack;
+    vector<Widget*> focus_order;
+
+    void update_focus_order();
+    void focus_next();
+    void focus_prev();
 
     struct RestartAllocation {};
 
@@ -128,6 +142,7 @@ protected:
     Stack m_root;
     bool m_needs_layout{false};
     bool m_changed_layout_since_click = false;
+    vector<LayoutInfo> saved_layout_info;
 } ui_root;
 
 static stack<Region> scissor_stack;
@@ -143,6 +158,7 @@ Widget::~Widget()
     if (m_parent && get_focused_widget() == this)
         set_focused_widget(nullptr);
     _set_parent(nullptr);
+    erase_val(ui_root.focus_order, this);
 }
 
 bool Widget::on_event(const wm_event& event)
@@ -2254,14 +2270,20 @@ void PlayerDoll::_allocate_region()
 
 void UIRoot::push_child(shared_ptr<Widget> ch, KeymapContext km)
 {
+    Widget* focus;
     if (auto popup = dynamic_cast<Popup*>(ch.get()))
-        focus_stack.push_back(popup->get_child().get());
+        focus = popup->get_child().get();
     else
-        focus_stack.push_back(ch.get());
+        focus = ch.get();
+
+    saved_layout_info.push_back(state);
+    state.keymap = km;
+    state.default_focus = state.current_focus = focus;
+
     m_root.add_child(move(ch));
     m_needs_layout = true;
-    keymap_stack.push_back(km);
     m_changed_layout_since_click = true;
+    update_focus_order();
 #ifndef USE_TILE_LOCAL
     if (m_root.num_children() == 1)
     {
@@ -2275,9 +2297,10 @@ void UIRoot::pop_child()
 {
     m_root.pop_child();
     m_needs_layout = true;
-    keymap_stack.pop_back();
-    focus_stack.pop_back();
+    state = saved_layout_info.back();
+    saved_layout_info.pop_back();
     m_changed_layout_since_click = true;
+    update_focus_order();
 #ifndef USE_TILE_LOCAL
     if (m_root.num_children() == 0)
         clrscr();
@@ -2427,6 +2450,72 @@ void UIRoot::debug_render()
 }
 #endif
 
+void UIRoot::update_focus_order()
+{
+    focus_order.clear();
+
+    function<void(Widget*)> recurse = [&](Widget* widget) {
+        if (widget->can_take_focus())
+            focus_order.emplace_back(widget);
+        widget->for_each_child_including_internal([&](shared_ptr<Widget>& ch) {
+            recurse(ch.get());
+        });
+    };
+
+    int layer_idx = m_root.num_children()-1;
+    if (layer_idx >= 0)
+    {
+        auto layer_root = m_root.get_child(layer_idx).get();
+        recurse(layer_root);
+    }
+}
+
+void UIRoot::focus_next()
+{
+    if (focus_order.empty())
+        return;
+
+    const auto default_focus = state.default_focus;
+    const auto current_focus = state.current_focus;
+
+    if (!current_focus || current_focus == default_focus)
+    {
+        set_focused_widget(focus_order.front());
+        return;
+    }
+
+    auto it = find(focus_order.begin(), focus_order.end(), current_focus);
+    ASSERT(it != focus_order.end());
+    if (*it == focus_order.back())
+        it = focus_order.begin();
+    else
+        ++it;
+    set_focused_widget(*it);
+}
+
+void UIRoot::focus_prev()
+{
+    if (focus_order.empty())
+        return;
+
+    const auto default_focus = state.default_focus;
+    const auto current_focus = state.current_focus;
+
+    if (!current_focus || current_focus == default_focus)
+    {
+        set_focused_widget(focus_order.back());
+        return;
+    }
+
+    auto it = find(focus_order.begin(), focus_order.end(), current_focus);
+    ASSERT(it != focus_order.end());
+    if (*it == focus_order.front())
+        it = focus_order.end()-1;
+    else
+        --it;
+    set_focused_widget(*it);
+}
+
 static function<bool(const wm_event&)> event_filter;
 
 #ifdef USE_TILE_LOCAL
@@ -2571,9 +2660,49 @@ bool UIRoot::on_event(const wm_event& event)
                     return true;
             }
 
-            for (Widget* w = focus_stack.back(); w; w = w->_get_parent())
+            if (auto w = get_focused_widget())
+            {
                 if (w->on_event(event))
                     return true;
+
+                if (w != state.default_focus && event.type == WME_KEYDOWN)
+                {
+                    if (key_is_escape(event.key.keysym.sym))
+                    {
+                        set_focused_widget(nullptr);
+                        return true;
+                    }
+                    if (event.key.keysym.sym == '\t')
+                    {
+                        focus_next();
+                        return true;
+                    }
+                    if (event.key.keysym.sym == CK_SHIFT_TAB)
+                    {
+                        focus_prev();
+                        return true;
+                    }
+                }
+
+                for (w = w->_get_parent(); w; w = w->_get_parent())
+                    if (w->on_event(event))
+                        return true;
+            }
+
+            if (event.type == WME_KEYDOWN)
+            {
+                if (event.key.keysym.sym == '\t')
+                {
+                    focus_next();
+                    return true;
+                }
+                if (event.key.keysym.sym == CK_SHIFT_TAB)
+                {
+                    focus_prev();
+                    return true;
+                }
+            }
+
             break;
     }
 
@@ -2706,8 +2835,7 @@ void resize(int w, int h)
 static void remap_key(wm_event &event)
 {
     keyseq keys = {event.key.keysym.sym};
-    KeymapContext km = ui_root.keymap_stack.size() > 0 ? ui_root.keymap_stack[0] : KMC_NONE;
-    macro_buf_add_with_keymap(keys, km);
+    macro_buf_add_with_keymap(keys, ui_root.state.keymap);
     event.key.keysym.sym = macro_buf_get();
     ASSERT(event.key.keysym.sym != -1);
 }
@@ -2908,10 +3036,9 @@ int getch(KeymapContext km)
         done = true;
         return true;
     };
-    ui_root.keymap_stack.emplace_back(km);
+    unwind_var<KeymapContext> temp_keymap(ui_root.state.keymap, km);
     while (!done && !crawl_state.seen_hups)
         pump_events();
-    ui_root.keymap_stack.pop_back();
     event_filter = nullptr;
     return key;
 }
@@ -3088,7 +3215,10 @@ void set_focused_widget(Widget* w)
     if (w && !top->is_ancestor_of(w->get_shared()))
         return;
 
-    auto current_focus = ui_root.focus_stack.back();
+    if (!w)
+        w = ui_root.state.default_focus;
+
+    auto current_focus = ui_root.state.current_focus;
 
     if (w == current_focus)
         return;
@@ -3106,7 +3236,7 @@ void set_focused_widget(Widget* w)
     if (new_focus != w)
         return;
 
-    ui_root.focus_stack.back() = new_focus;
+    ui_root.state.current_focus = new_focus;
 
     sent_focusout = false;
 
@@ -3120,7 +3250,7 @@ void set_focused_widget(Widget* w)
 
 Widget* get_focused_widget()
 {
-    return ui_root.focus_stack.empty() ? nullptr : ui_root.focus_stack.back();
+    return ui_root.state.current_focus;
 }
 
 }
