@@ -24,6 +24,7 @@
 #endif
 #ifdef USE_TILE_WEB
 # include "tileweb.h"
+# include "json.h"
 #endif
 
 namespace ui {
@@ -302,6 +303,13 @@ public:
         return nullptr;
     }
 
+    const string& sync_id()
+    {
+        return m_sync_id;
+    }
+
+    void set_sync_id(string id);
+
 protected:
     Region m_region;
     Margin margin = Margin{0};
@@ -327,6 +335,12 @@ protected:
 
     virtual bool can_take_focus() { return false; };
 
+#ifdef USE_TILE_WEB
+    virtual void sync_save_state();
+    virtual void sync_load_state(const JsonNode *json);
+    void sync_state_changed();
+#endif
+
 private:
     bool cached_sr_valid[2] = { false, false };
     SizeReq cached_sr[2];
@@ -337,6 +351,8 @@ private:
 
     Size m_min_size = Size{0};
     Size m_max_size = Size{INT_MAX};
+
+    string m_sync_id;
 };
 
 class Container : public Widget
@@ -853,11 +869,19 @@ public:
         if (m_checked == checked)
             return;
         m_checked = checked;
+#ifdef USE_TILE_WEB
+        sync_state_changed();
+#endif
         _expose();
     };
 
 protected:
     bool can_take_focus() override { return true; };
+
+#ifdef USE_TILE_WEB
+    void sync_save_state() override;
+    void sync_load_state(const JsonNode *json) override;
+#endif
 
     bool m_checked = false;
 #ifdef USE_TILE_LOCAL
@@ -889,6 +913,9 @@ public:
         m_line_reader.set_text(s);
         m_text = m_line_reader.get_text();
         m_cursor = m_line_reader.get_cursor_position();
+#ifdef USE_TILE_WEB
+        sync_state_changed();
+#endif
         _expose();
     };
 
@@ -903,6 +930,11 @@ public:
 
 protected:
     bool can_take_focus() override { return true; };
+
+#ifdef USE_TILE_WEB
+    void sync_save_state() override;
+    void sync_load_state(const JsonNode *json) override;
+#endif
 
 #ifdef USE_TILE_LOCAL
     int padding_size();
@@ -1054,6 +1086,10 @@ Region get_scissor();
 
 void set_focused_widget(Widget* w);
 Widget* get_focused_widget();
+
+#ifdef USE_TILE_WEB
+void recv_ui_state_change(const JsonNode *json);
+#endif
 
 // XXX: this is a hack used to ensure that when switching to a
 // layout-based UI, the starting window size is correct. This is necessary

@@ -193,6 +193,47 @@ function ($, comm, client, options, focus_trap) {
         });
     });
 
+    $(document).on("input change", "[data-sync-id]", function (ev) {
+        switch (ev.target.type)
+        {
+            case "text":
+                var state_msg = { text: ev.target.value };
+                break;
+            case "checkbox":
+                var state_msg = { checked: ev.target.checked };
+                break;
+            default:
+                return;
+        }
+        state_msg.widget_id = ev.target.getAttribute("data-sync-id");
+        comm.send_message("ui_state_sync", state_msg);
+    });
+
+    comm.register_handlers({
+        "ui-state-sync": function (msg) {
+            if (msg.from_webtiles && !client.is_watching())
+                return;
+            var popup = top_popup();
+            if (!popup)
+                return;
+            // TODO: add popup generation numbers
+            var elem = popup.find('[data-sync-id='+msg.widget_id+']')[0];
+            if (!elem)
+                return;
+            switch (elem.type)
+            {
+                case "text":
+                    elem.value = msg.text;
+                    break;
+                case "checkbox":
+                    elem.checked = msg.checked;
+                    break;
+                default:
+                    return;
+            }
+        },
+    });
+
     return {
         show_popup: show_popup,
         hide_popup: hide_popup,
