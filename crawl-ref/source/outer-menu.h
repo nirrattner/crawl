@@ -12,7 +12,7 @@ class MenuButton : public ui::Bin
 {
     friend class OuterMenu;
 public:
-    MenuButton() {};
+    MenuButton();
 
     virtual void _render() override;
     virtual ui::SizeReq _get_preferred_size(ui::Widget::Direction, int) override;
@@ -33,6 +33,8 @@ public:
 
 protected:
     bool can_take_focus() override { return true; };
+
+    bool activate();
 
     bool focused = false;
     bool active = false;
@@ -79,8 +81,6 @@ public:
     };
 
     void scroll_button_into_view(MenuButton *btn);
-
-    function<void(int)> on_button_activated;
 
     weak_ptr<OuterMenu> linked_menus[4];
     shared_ptr<ui::Switcher> descriptions;

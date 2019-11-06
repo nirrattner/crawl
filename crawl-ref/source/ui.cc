@@ -189,6 +189,10 @@ FocusEvent::FocusEvent(Event::Type type) : Event(type)
 {
 }
 
+ActivationEvent::ActivationEvent() : Event(Event::Type::Activation)
+{
+}
+
 Widget::~Widget()
 {
     Widget::slots.event.remove_by_target(this);
