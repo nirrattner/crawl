@@ -1860,7 +1860,12 @@ void TextEntry::_render()
     cprintf("%s", remain.c_str());
 
     if (has_focus)
+    {
+        cgotoxy(m_region.x+cursor_x-m_hscroll+1, m_region.y+1, GOTO_CRT);
+        textcolour(LIGHTGREY);
+        cprintf(" ");
         show_cursor_at(m_region.x+cursor_x-m_hscroll+1, m_region.y+1);
+    }
 #endif
 }
 
