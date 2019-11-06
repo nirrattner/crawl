@@ -143,6 +143,7 @@ public:
     void update_synced_widgets();
     unordered_map<string, Widget*> synced_widgets;
     bool receiving_ui_state = false;
+    void sync_state();
     void recv_ui_state_change(const JsonNode *state);
 #endif
 
@@ -2840,6 +2841,19 @@ void UIRoot::update_synced_widgets()
         recurse(top.get());
 }
 
+void UIRoot::sync_state()
+{
+    function<void(Widget*)> recurse = [&](Widget* widget) {
+        widget->sync_state_changed();
+        widget->for_each_child_including_internal([&](shared_ptr<Widget>& ch) {
+            recurse(ch.get());
+        });
+    };
+
+    if (const auto top = top_layout())
+        recurse(top.get());
+}
+
 void UIRoot::recv_ui_state_change(const JsonNode *json)
 {
     auto widget_id = json_find_member(json, "widget_id");
@@ -2922,6 +2936,9 @@ void pop_cutoff()
 void push_layout(shared_ptr<Widget> root, KeymapContext km)
 {
     ui_root.push_child(move(root), km);
+#ifdef USE_TILE_WEB
+    ui_root.sync_state();
+#endif
 }
 
 void pop_layout()
